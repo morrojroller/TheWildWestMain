@@ -4,7 +4,7 @@ local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 
 local GRAVITY = Vector3.new(0, -32, 0)
-local targetVelocities = {} -- [model] = { lastPos, lastTime, velocity, smoothVelocity }
+local targetVelocities = {}
 
 local Prediction = {}
 
@@ -89,7 +89,7 @@ function Prediction.StartWeaponMonitor()
     end
 end
 
--- Helper to safely convert position arguments (Vector3, CFrame, or BasePart/Model) into Vector3
+-- Safely convert anything to Vector3
 local function toVector3(pos)
     local t = typeof(pos)
     if t == "Vector3" then
@@ -106,7 +106,6 @@ local function toVector3(pos)
     return nil
 end
 
--- Enhanced velocity tracking with anti-jiggle damping
 local VELOCITY_SMOOTH_FACTOR = 0.2 
 local MIN_VELOCITY_THRESHOLD = 0.8
 local MAX_VELOCITY_CAP = 45 
@@ -158,22 +157,21 @@ function Prediction.GetPredictedPosition(origin, targetModel, targetPos)
     local targetVec = toVector3(targetPos)
     
     if not originVec or not targetVec then return targetPos end
-    if not currentWeaponData then return targetVec end
     
-    local projectileSpeed = currentWeaponData.ProjectilePower or 1000
-    if projectileSpeed <= 0 then return targetVec end
+    -- Extract and force projectile speed to be a clean number (default to 1000 if missing or string)
+    local rawSpeed = currentWeaponData and currentWeaponData.ProjectilePower or 1000
+    local projectileSpeed = tonumber(rawSpeed) or 1000
+    if projectileSpeed <= 0 then projectileSpeed = 1000 end
     
     local targetVelocity = Prediction.UpdateTargetVelocity(targetModel, targetVec)
     local relPos = targetVec - originVec
     
-    -- Quadratic coefficients for intercept time (t)
     local a = targetVelocity:Dot(targetVelocity) - (projectileSpeed * projectileSpeed)
     local b = 2 * relPos:Dot(targetVelocity)
     local c = relPos:Dot(relPos)
     
     local discriminant = (b * b) - (4 * a * c)
     if discriminant < 0 or math.abs(a) < 0.0001 then
-        -- Fallback to linear travel time if discriminant fails
         local flightTime = relPos.Magnitude / projectileSpeed
         local gravDrop = 0.5 * math.abs(GRAVITY.Y) * (flightTime * flightTime)
         return targetVec + (targetVelocity * flightTime) + Vector3.new(0, gravDrop, 0)
@@ -194,20 +192,20 @@ function Prediction.GetPredictedPosition(origin, targetModel, targetPos)
     
     if not t then return targetVec end
     
-    -- Clamp prediction time to prevent wild over-aiming on jiggling targets
     t = math.clamp(t, 0, 1.2)
     
-    -- Calculate precise predicted position with gravity drop
-    local predictedPos = targetVec + (targetVelocity * t)
-    local gravDrop = 0.5 * math.abs(GRAVITY.Y) * (t * t)
-    predictedPos = predictedPos + Vector3.new(0, gravDrop, 0)
+    -- Force time and drop calculations to strictly be numbers
+    local safeT = tonumber(t) or 0
+    local predictedPos = targetVec + (targetVelocity * safeT)
+    local gravDrop = 0.5 * math.abs(GRAVITY.Y) * (safeT * safeT)
+    predictedPos = predictedPos + Vector3.new(0, tonumber(gravDrop) or 0, 0)
     
     return predictedPos
 end
 
 function Prediction.GetCurrentWeaponName() return currentWeaponName end
 function Prediction.GetCurrentWeaponData() return currentWeaponData end
-function Prediction.GetProjectileSpeed() return currentWeaponData and currentWeaponData.ProjectilePower or nil end
+function Prediction.GetProjectileSpeed() return currentWeaponData and tonumber(currentWeaponData.ProjectilePower) or nil end
 
 function Prediction.CleanupStaleData()
     local now = tick()
