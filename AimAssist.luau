@@ -9,7 +9,7 @@ local LocalPlayer = Players.LocalPlayer
 local aimAssistActive = false
 local fovRadius = 150 -- Customizable FOV radius
 
--- Global or module-level tracking for cleanup integration
+-- Global tracking for cleanup integration
 _G.StealthAimAssistDrawings = _G.StealthAimAssistDrawings or {}
 
 -- Create Drawing objects for FOV Circle and Target Dot
@@ -166,7 +166,7 @@ local keyConn = UserInputService.InputBegan:Connect(function(input, gameProcesse
 end)
 table.insert(_G.StealthConnections, keyConn)
 
--- Hook ProjectileHandler
+-- Clean Silent-Aim Hook via Projectile Spread
 local success, ProjectileHandler = pcall(function()
     return require(ReplicatedStorage:WaitForChild("SharedModules", 5):WaitForChild("World", 5):WaitForChild("ProjectileHandler", 5))
 end)
@@ -174,9 +174,6 @@ end)
 if success and ProjectileHandler then
     if not ProjectileHandler._OriginalGetSpread then
         ProjectileHandler._OriginalGetSpread = ProjectileHandler.GetProjectileSpread
-    end
-    if not ProjectileHandler._OriginalInitProjectiles then
-        ProjectileHandler._OriginalInitProjectiles = ProjectileHandler.InitProjectiles
     end
 
     ProjectileHandler.GetProjectileSpread = function(self, projectileType, projectileParams, info, numProjectiles)
@@ -187,15 +184,5 @@ if success and ProjectileHandler then
             end
         end
         return ProjectileHandler._OriginalGetSpread(self, projectileType, projectileParams, info, numProjectiles)
-    end
-
-    ProjectileHandler.InitProjectiles = function(self, projectileType, projectileParams, info, callback)
-        if aimAssistActive and info and info.origin then
-            local targetPos = getTargetPosition(info.origin)
-            if targetPos then
-                info.direction = (targetPos - info.origin).Unit
-            end
-        end
-        return ProjectileHandler._OriginalInitProjectiles(self, projectileType, projectileParams, info, callback)
     end
 end
