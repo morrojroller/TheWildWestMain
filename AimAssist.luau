@@ -83,13 +83,10 @@ end
 local function getPriorityAimPosition(model)
     if not model then return nil end
     local head = getValidHeadPart(model)
-    local neck = model:FindFirstChild("Neck")
     local torso = model:FindFirstChild("UpperTorso") or model:FindFirstChild("Torso") or model:FindFirstChild("HumanoidRootPart")
     
     if head then
         return head.Position, head
-    elseif neck then
-        return neck.Position, nil
     elseif torso then
         return torso.Position, nil
     end
