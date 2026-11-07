@@ -91,15 +91,17 @@ local function loadModule(fileName)
         return loadstring(game:HttpGet("https://raw.githubusercontent.com/morrojroller/TheWildWestMain/main/" .. fileName))()
     end)
     if not success then
-        warn("[WWHE Loader] Failed to load module: " .. tostring(fileName) .. " | Error: " .. tostring(result))
+        warn("[WWHE Loader] Failed to load module: " + tostring(fileName) + " | Error: " + tostring(result))
     end
 end
 
--- Load your modular feature components in order
+-- Load your modular feature components in order (including new prediction architecture)
 loadModule("Visuals.luau")
 loadModule("Hitboxes.luau")
 loadModule("GunMod.luau")
 loadModule("HitmanStuff.luau")
+loadModule("AllGunData.luau")
+loadModule("Prediction.luau")
 loadModule("AimAssist.luau")
 
-print("[WWHE]: All modules loaded successfully!")
+print("[WWHE]: All modules including Prediction and AllGunData loaded successfully!")
