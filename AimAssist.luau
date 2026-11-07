@@ -1,4 +1,3 @@
--- WWHE AimAssist Module (Fully Updated, 100% Recursive Event-Driven Caching & Instant Cleanup)
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -199,6 +198,9 @@ RunService.RenderStepped:Connect(function()
 
     for model, _ in pairs(cachedEntities) do
         if model and model.Parent then
+			if string.find(model.Name:lower(), "musketspringfield") then
+			continue
+		end
             local basePos, headPart = getPriorityAimPosition(model)
             if basePos then
                 local distToPlayer = (basePos - charPos).Magnitude
