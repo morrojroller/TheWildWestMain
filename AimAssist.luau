@@ -83,10 +83,13 @@ end
 local function getPriorityAimPosition(model)
     if not model then return nil end
     local head = getValidHeadPart(model)
+    local neck = model:FindFirstChild("Neck")
     local torso = model:FindFirstChild("UpperTorso") or model:FindFirstChild("Torso") or model:FindFirstChild("HumanoidRootPart")
     
     if head then
         return head.Position, head
+    elseif neck then
+        return neck.Position, nil
     elseif torso then
         return torso.Position, nil
     end
@@ -114,11 +117,11 @@ if entitiesFolder then
     end
 
     local function unregisterEntity(model)
-        cachedEntities[model] = nil
-        headKeyCache[model] = nil
-        entityOriginalFolders[model] = nil
-        Prediction.CleanupTarget(model)
-    end
+		cachedEntities[model] = nil
+		headKeyCache[model] = nil
+		entityOriginalFolders[model] = nil
+		Prediction.CleanupTarget(model)
+	end
 
     local monitorContainer
 
@@ -201,15 +204,22 @@ RunService.RenderStepped:Connect(function()
     local bestDistance = 0
 
     for model, _ in pairs(cachedEntities) do
-        if model and model.Parent then
-            -- Alive Check: if enabled, check if they are "dead" (moved out of their original folder)
-            if aliveCheck then
-                local originalFolder = entityOriginalFolders[model]
-                if not originalFolder or model.Parent ~= originalFolder then
-                    unregisterEntity(model)
-                    continue
-                end
+    if model and model.Parent then
+        -- Check if model has a Humanoid and if it's dead
+        local humanoid = model:FindFirstChildOfClass("Humanoid")
+        if humanoid and humanoid.Health <= 0 then
+            unregisterEntity(model)
+            continue
+        end
+
+        -- Alive Check: if enabled, check if they are moved out of their original folder
+        if aliveCheck then
+            local originalFolder = entityOriginalFolders[model]
+            if not originalFolder or model.Parent ~= originalFolder then
+                unregisterEntity(model)
+                continue
             end
+        end
 
             if string.find(model.Name:lower(), "musketspringfield") then
                 continue
