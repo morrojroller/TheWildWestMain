@@ -206,7 +206,9 @@ if success and ProjectileHandler then
                 info.direction = newDir
             end
         end
-        return ProjectileHandler._OriginalGetSpread(self, projectileType, projectileParams, info, numProjectiles)
+        if ProjectileHandler._OriginalGetSpread then
+            return ProjectileHandler._OriginalGetSpread(self, projectileType, projectileParams, info, numProjectiles)
+        end
     end
 end
 ```[cite: 1, 7]
