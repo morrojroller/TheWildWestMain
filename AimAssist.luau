@@ -7,7 +7,7 @@ local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 
 local aimAssistActive = false
-local fovRadius = 150 -- Customizable FOV radius
+local fovRadius = 150 -- Customizable FOV circle radius
 
 -- Global tracking for cleanup integration
 _G.StealthAimAssistDrawings = _G.StealthAimAssistDrawings or {}
@@ -42,7 +42,7 @@ local function clearAimAssistVisuals()
     if targetDot then targetDot.Visible = false end
 end
 
--- Priority parts order: Head -> Neck -> Torso
+-- Priority target selection: Head -> Neck -> Torso (UpperTorso/Torso/HumanoidRootPart)
 local function getPriorityAimPosition(model)
     if not model then return nil end
     local head = model:FindFirstChild("Head")
@@ -60,10 +60,14 @@ local function getPriorityAimPosition(model)
 end
 
 local function getTargetPosition(origin)
-    if not aimAssistActive or not _G.StealthWorkerRunning then return nil end
+    if not aimAssistActive or not _G.StealthWorkerRunning then
+        clearAimAssistVisuals()
+        return nil
+    end
+
     local camera = Workspace.CurrentCamera
     if not camera then return nil end
-    
+
     local mousePos = UserInputService:GetMouseLocation()
     fovCircle.Position = mousePos
     fovCircle.Visible = aimAssistActive
@@ -71,77 +75,94 @@ local function getTargetPosition(origin)
     local character = LocalPlayer.Character
     local hrpChar = character and character:FindFirstChild("HumanoidRootPart")
     local charPos = hrpChar and hrpChar.Position or origin
+    local charLook = hrpChar and hrpChar.CFrame.LookVector or camera.CFrame.LookVector
 
-    local entities = Workspace:FindFirstChild("WORKSPACE_Entities")
-    if not entities then
+    local Entities = Workspace:FindFirstChild("WORKSPACE_Entities")
+    if not Entities then
         targetDot.Visible = false
         return nil
     end
 
-    local playersFolder = entities:FindFirstChild("Players")
-    local animalsFolder = entities:FindFirstChild("Animals")
-    local npcsFolder = entitiesFolder:FindFirstChild("NPCs")
+    local PlayersFolder = Entities:FindFirstChild("Players")
+    local AnimalsFolder = Entities:FindFirstChild("Animals")
+    local NPCsFolder = Entities:FindFirstChild("NPCs")
 
-    local bestTargetPos = nil
     local bestScore = math.huge
+    local targetPos = nil
+    local bestScreenPos = nil
 
-    local function processTarget(model, aimPos)
-        if not model or not aimPos then return end
-        local distToPlayer = (aimPos - charPos).Magnitude
-        
-        local screenPos, onScreen = camera:WorldToViewportPoint(aimPos)
-        if onScreen and screenPos.Z > 0 then
-            local screenVec = Vector2.new(screenPos.X, screenPos.Y)
-            local distToMouse = (screenVec - mousePos).Magnitude
-            
-            -- Must be within FOV circle
-            if distToMouse <= fovRadius then
-                local score = distToMouse + (distToPlayer * 0.05)
-                if score < bestScore then
-                    bestScore = score
-                    bestTargetPos = aimPos
-                    targetDot.Position = screenVec
-                    targetDot.Visible = true
+    local function processTarget(part, aimPosition)
+        if not part or not aimPosition then return end
+        local toTarget = (aimPosition - charPos).Unit
+        if charLook:Dot(toTarget) > 0 then
+            local screenPos, onScreen = camera:WorldToScreenPoint(aimPosition)
+            if onScreen and screenPos.Z > 0 then
+                local screenVec = Vector2.new(screenPos.X, screenPos.Y)
+                local distToMouse = (screenVec - mousePos).Magnitude
+                
+                -- Must be inside the FOV circle radius
+                if distToMouse <= fovRadius then
+                    local distToPlayer = (aimPosition - charPos).Magnitude
+                    -- Combined scoring: closeness to center of FOV circle + closeness to local player
+                    local score = distToMouse + (distToPlayer * 0.05)
+                    
+                    if score < bestScore then
+                        bestScore = score
+                        targetPos = aimPosition
+                        bestScreenPos = screenVec
+                    end
                 end
             end
         end
     end
 
-    if CONFIG.Players and playersFolder then
-        for _, model in ipairs(playersFolder:GetChildren()) do
+    if CONFIG.Players and PlayersFolder then
+        for _, model in ipairs(PlayersFolder:GetChildren()) do
             if model ~= character and model:IsA("Model") then
-                local aimPos = getPriorityAimPosition(model)
-                if aimPos then processTarget(model, aimPos) end
+                local hrp = model:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    local aimPos = getPriorityAimPosition(model) or hrp.Position
+                    processTarget(hrp, aimPos)
+                end
             end
         end
     end
 
-    if CONFIG.Animals and animalsFolder then
-        for _, model in ipairs(animalsFolder:GetChildren()) do
+    if CONFIG.Animals and AnimalsFolder then
+        for _, model in ipairs(AnimalsFolder:GetChildren()) do
             if model:IsA("Model") then
-                local aimPos = getPriorityAimPosition(model) or (model.PrimaryPart and model.PrimaryPart.Position)
-                if aimPos then processTarget(model, aimPos) end
+                local hrp = model:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    local aimPos = getPriorityAimPosition(model) or hrp.Position
+                    processTarget(hrp, aimPos)
+                end
             end
         end
     end
 
-    if CONFIG.NPCs and npcsFolder then
-        for _, descendant in ipairs(npcsFolder:GetDescendants()) do
+    if CONFIG.NPCs and NPCsFolder then
+        for _, descendant in ipairs(NPCsFolder:GetDescendants()) do
             if descendant:IsA("Model") then
-                local aimPos = getPriorityAimPosition(descendant) or (descendant.PrimaryPart and descendant.PrimaryPart.Position)
-                if aimPos then processTarget(descendant, aimPos) end
+                local hrp = descendant:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    local aimPos = getPriorityAimPosition(descendant) or hrp.Position
+                    processTarget(hrp, aimPos)
+                end
             end
         end
     end
 
-    if not bestTargetPos then
+    if targetPos and bestScreenPos then
+        targetDot.Position = bestScreenPos
+        targetDot.Visible = true
+    else
         targetDot.Visible = false
     end
 
-    return bestTargetPos
+    return targetPos
 end
 
--- RenderStepped connection to update FOV circle position with mouse movement
+-- RenderStepped to update FOV circle position with mouse movement
 local renderConn = RunService.RenderStepped:Connect(function()
     if not aimAssistActive or not _G.StealthWorkerRunning then
         clearAimAssistVisuals()
@@ -166,7 +187,7 @@ local keyConn = UserInputService.InputBegan:Connect(function(input, gameProcesse
 end)
 table.insert(_G.StealthConnections, keyConn)
 
--- Clean Silent-Aim Hook via Projectile Spread
+-- Hook ProjectileHandler (Silent Aim Spread Only)
 local success, ProjectileHandler = pcall(function()
     return require(ReplicatedStorage:WaitForChild("SharedModules", 5):WaitForChild("World", 5):WaitForChild("ProjectileHandler", 5))
 end)
@@ -180,7 +201,8 @@ if success and ProjectileHandler then
         if aimAssistActive and info and info.origin then
             local targetPos = getTargetPosition(info.origin)
             if targetPos then
-                info.direction = (targetPos - info.origin).Unit
+                local newDir = (targetPos - info.origin).Unit
+                info.direction = newDir
             end
         end
         return ProjectileHandler._OriginalGetSpread(self, projectileType, projectileParams, info, numProjectiles)
