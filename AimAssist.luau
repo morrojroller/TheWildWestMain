@@ -12,6 +12,14 @@ local fovRadius = 350 -- Customizable FOV radius
 _G.StealthAimAssistDrawings = _G.StealthAimAssistDrawings or {}
 _G.StealthConnections = _G.StealthConnections or {}
 
+-- Load AllGunData and Prediction modules
+local AllGunData = loadstring(game:HttpGet("https://raw.githubusercontent.com/morrojroller/TheWildWestMain/main/AllGunData.luau"))()
+local Prediction = loadstring(game:HttpGet("https://raw.githubusercontent.com/morrojroller/TheWildWestMain/main/Prediction.luau"))()
+
+-- Initialize Prediction with Gun Data and start weapon monitoring
+Prediction.SetGunData(AllGunData)
+Prediction.StartWeaponMonitor()
+
 -- Safely create Drawing objects with nil-protection
 local fovCircle
 pcall(function()
@@ -42,7 +50,7 @@ end)
 
 -- Cached Entity Registries & Head Caches
 local cachedEntities = {}
-local headKeyCache = {} -- Remembers whether it was "Head" or "head" per model
+local headKeyCache = {}
 
 local CONFIG = {
     Players = true,
@@ -77,7 +85,6 @@ local function getPriorityAimPosition(model)
     local torso = model:FindFirstChild("UpperTorso") or model:FindFirstChild("Torso") or model:FindFirstChild("HumanoidRootPart")
     
     if head then
-        -- Return head position (we apply distance-based vertical offset scaling later)
         return head.Position, head
     elseif neck then
         return neck.Position, nil
@@ -92,7 +99,7 @@ local function clearAimAssistVisuals()
     if targetDot then targetDot.Visible = false end
 end
 
--- Setup and populate complete folder hierarchies with 100% robust recursive listeners
+-- Setup and populate complete folder hierarchies
 local entitiesFolder = Workspace:WaitForChild("WORKSPACE_Entities", 5)
 
 if entitiesFolder then
@@ -109,15 +116,14 @@ if entitiesFolder then
     local function unregisterEntity(model)
         cachedEntities[model] = nil
         headKeyCache[model] = nil
+        Prediction.CleanupTarget(model)
     end
 
-    -- Forward declaration for recursive container monitoring
     local monitorContainer
 
     monitorContainer = function(container)
         if not container then return end
 
-        -- Initial scan of current contents
         for _, child in ipairs(container:GetChildren()) do
             if child:IsA("Folder") or child:IsA("Model") then
                 if child:IsA("Model") then
@@ -127,7 +133,6 @@ if entitiesFolder then
             end
         end
 
-        -- Listen for future additions inside this container (Folders or Models that can contain models)
         table.insert(_G.StealthConnections, container.ChildAdded:Connect(function(child)
             task.defer(function()
                 if child and child.Parent then
@@ -141,7 +146,6 @@ if entitiesFolder then
             end)
         end))
 
-        -- Listen for removals inside this container to instantly unregister/clean up
         table.insert(_G.StealthConnections, container.ChildRemoved:Connect(function(child)
             if child:IsA("Model") then
                 unregisterEntity(child)
@@ -149,7 +153,6 @@ if entitiesFolder then
         end))
     end
 
-    -- Setup Folders & 100% Deep Recursive Listeners
     if CONFIG.Players and playersFolder then
         monitorContainer(playersFolder)
     end
@@ -163,7 +166,7 @@ if entitiesFolder then
     end
 end
 
--- Frame-locked RenderStepped calculation loop with distance & screen scaling
+-- Frame-locked RenderStepped calculation loop with ballistic prediction integration
 local currentBestAimPos = nil
 
 RunService.RenderStepped:Connect(function()
@@ -198,19 +201,20 @@ RunService.RenderStepped:Connect(function()
 
     for model, _ in pairs(cachedEntities) do
         if model and model.Parent then
-			if string.find(model.Name:lower(), "musketspringfield") then
-			continue
-		end
+            if string.find(model.Name:lower(), "musketspringfield") then
+                continue
+            end
             local basePos, headPart = getPriorityAimPosition(model)
             if basePos then
                 local distToPlayer = (basePos - charPos).Magnitude
                 
-                -- Distance scaling factor to prevent floating offsets at range
+                -- Apply Prediction module to calculate intercept position based on target velocity, gravity, and weapon projectile speed
+                local predictedPos = Prediction.GetPredictedPosition(charPos, model, basePos)
+                
                 local scaleFactor = math.clamp(1 - (distToPlayer / 500), 0.2, 1.0)
-                local adjustedAimPos = basePos
+                local adjustedAimPos = predictedPos
                 if headPart then
-                    -- Scale down the downward offset calculation based on distance
-                    adjustedAimPos = basePos - Vector3.new(0, 0.25 * scaleFactor, 0)
+                    adjustedAimPos = predictedPos - Vector3.new(0, 0.25 * scaleFactor, 0)
                 end
 
                 local toTarget = (adjustedAimPos - charPos).Unit
@@ -234,9 +238,9 @@ RunService.RenderStepped:Connect(function()
                 end
             end
         else
-            -- Clean up dead references from cache
             cachedEntities[model] = nil
             headKeyCache[model] = nil
+            Prediction.CleanupTarget(model)
         end
     end
 
@@ -244,7 +248,6 @@ RunService.RenderStepped:Connect(function()
 
     if bestTargetPos and bestScreenVec and targetDot then
         targetDot.Position = bestScreenVec
-        -- Scale target dot radius dynamically based on distance so it doesn't look giant or tiny
         local dotScale = math.clamp(1 - (bestDistance / 400), 0.4, 1.0)
         targetDot.Radius = math.clamp(math.floor(4 * dotScale), 2, 4)
         targetDot.Visible = true
