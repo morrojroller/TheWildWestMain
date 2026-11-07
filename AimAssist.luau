@@ -1,4 +1,4 @@
--- WWHE AimAssist Module (FOV Circle, Target Dot, Priority Targeting, CapsLock Toggle)
+-- WWHE AimAssist Module (FOV Circle, Target Dot, Priority Targeting, CapsLock Toggle with Debugging)
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -67,7 +67,10 @@ local function getTargetPosition(origin)
     end
 
     local camera = Workspace.CurrentCamera
-    if not camera then return nil end
+    if not camera then 
+        warn("[AimAssist Debug]: Workspace.CurrentCamera is missing or nil!")
+        return nil 
+    end
 
     local mousePos = UserInputService:GetMouseLocation()
     fovCircle.Position = mousePos
@@ -80,6 +83,7 @@ local function getTargetPosition(origin)
 
     local Entities = Workspace:FindFirstChild("WORKSPACE_Entities")
     if not Entities then
+        warn("[AimAssist Debug]: Workspace.WORKSPACE_Entities folder could not be found!")
         targetDot.Visible = false
         return nil
     end
@@ -93,7 +97,10 @@ local function getTargetPosition(origin)
     local bestScreenPos = nil
 
     local function processTarget(part, aimPosition)
-        if not part or not aimPosition then return end
+        if not part or not aimPosition then 
+            warn("[AimAssist Debug]: processTarget received a nil part or aimPosition!")
+            return 
+        end
         local toTarget = (aimPosition - charPos).Unit
         if charLook:Dot(toTarget) > 0 then
             local screenPos, onScreen = camera:WorldToScreenPoint(aimPosition)
@@ -104,7 +111,6 @@ local function getTargetPosition(origin)
                 -- Must be inside the FOV circle radius
                 if distToMouse <= fovRadius then
                     local distToPlayer = (aimPosition - charPos).Magnitude
-                    -- Combined scoring: closeness to center of FOV circle + closeness to local player
                     local score = distToMouse + (distToPlayer * 0.05)
                     
                     if score < bestScore then
@@ -193,6 +199,10 @@ local success, ProjectileHandler = pcall(function()
     return require(ReplicatedStorage:WaitForChild("SharedModules", 5):WaitForChild("World", 5):WaitForChild("ProjectileHandler", 5))
 end)
 
+if not success or not ProjectileHandler then
+    warn("[AimAssist Debug]: Failed to require ProjectileHandler module! Path may have changed.")
+end
+
 if success and ProjectileHandler then
     if not ProjectileHandler._OriginalGetSpread then
         ProjectileHandler._OriginalGetSpread = ProjectileHandler.GetProjectileSpread
@@ -208,7 +218,9 @@ if success and ProjectileHandler then
         end
         if ProjectileHandler._OriginalGetSpread then
             return ProjectileHandler._OriginalGetSpread(self, projectileType, projectileParams, info, numProjectiles)
+        else
+        	warn("[AimAssist Debug]: _OriginalGetSpread is missing!")
         end
     end
 end
-```[cite: 1, 7]
+[cite: 1, 7]```
