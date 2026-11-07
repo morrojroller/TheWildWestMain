@@ -11,33 +11,33 @@ local fovRadius = 150 -- Customizable FOV radius
 -- Global or module-level tracking for cleanup integration
 _G.StealthAimAssistDrawings = _G.StealthAimAssistDrawings or {}
 
--- Safely create FOV Circle
+-- Safely create Drawing objects with nil-protection
 local fovCircle
 pcall(function()
-    fovCircle = Drawing.new("Circle")
-    fovCircle.Visible = false
-    fovCircle.Radius = fovRadius
-    fovCircle.Filled = false
-    fovCircle.Thickness = 1.5
-    fovCircle.Color = Color3.fromRGB(255, 255, 255)
-    fovCircle.Transparency = 0.7
-    table.insert(_G.StealthAimAssistDrawings, fovCircle)
+    if Drawing and Drawing.new then
+        fovCircle = Drawing.new("Circle")
+        fovCircle.Visible = false
+        fovCircle.Radius = fovRadius
+        fovCircle.Filled = false
+        fovCircle.Thickness = 1.5
+        fovCircle.Color = Color3.fromRGB(255, 255, 255)
+        fovCircle.Transparency = 0.7
+        table.insert(_G.StealthAimAssistDrawings, fovCircle)
+    end
 end)
 
--- Safely create Target Dot
 local targetDot
 pcall(function()
-    targetDot = Drawing.new("Circle")
-    targetDot.Visible = false
-    targetDot.Radius = 4
-    targetDot.Filled = true
-    targetDot.Color = Color3.fromRGB(255, 0, 0)
-    targetDot.Transparency = 1
-    table.insert(_G.StealthAimAssistDrawings, targetDot)
+    if Drawing and Drawing.new then
+        targetDot = Drawing.new("Circle")
+        targetDot.Visible = false
+        targetDot.Radius = 4
+        targetDot.Filled = true
+        targetDot.Color = Color3.fromRGB(255, 0, 0)
+        targetDot.Transparency = 1
+        table.insert(_G.StealthAimAssistDrawings, targetDot)
+    end
 end)
-
-table.insert(_G.StealthAimAssistDrawings, fovCircle)
-table.insert(_G.StealthAimAssistDrawings, targetDot)
 
 local CONFIG = {
     Players = true,
