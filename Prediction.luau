@@ -196,17 +196,45 @@ end
 function Prediction.GetPredictedPosition(origin, targetModel, targetPos, targetVelocity)
     if not currentWeaponData then return targetPos end
     
+    -- Retrieve actual projectile power/speed from shared weapon data
     local projectileSpeed = currentWeaponData.ProjectilePower or 1000
-    local distance = (targetPos - origin).Magnitude
+    local relPos = targetPos - origin
     
-    -- Accurate time of flight calculation based on native projectile physics
-    local flightTime = distance / projectileSpeed
+    -- Quadratic coefficients for intercept time (t)
+    local a = targetVelocity:Dot(targetVelocity) - (projectileSpeed * projectileSpeed)
+    local b = 2 * relPos:Dot(targetVelocity)
+    local c = relPos:Dot(relPos)
     
-    -- Account for native gravity drop (-32 studs/s^2)
-    local gravityDrop = 0.5 * 32 * (flightTime ^ 2)
+    local discriminant = (b * b) - (4 * a * c)
+    if discriminant < 0 or math.abs(a) < 0.0001 then
+        -- Fallback to linear travel time if discriminant fails
+        local flightTime = relPos.Magnitude / projectileSpeed
+        local gravDrop = 0.5 * 32 * (flightTime * flightTime)
+        return targetPos + (targetVelocity * flightTime) + Vector3.new(0, gravDrop, 0)
+    end
     
-    -- Predict future position using current smoothed velocity and time-of-flight
-    local predictedPos = targetPos + (targetVelocity * flightTime) + Vector3.new(0, gravityDrop, 0)
+    local sqrtDisc = math.sqrt(discriminant)
+    local t1 = (-b - sqrtDisc) / (2 * a)
+    local t2 = (-b + sqrtDisc) / (2 * a)
+    local t = nil
+    
+    if t1 > 0.001 and t2 > 0.001 then
+        t = math.min(t1, t2)
+    elseif t1 > 0.001 then
+        t = t1
+    elseif t2 > 0.001 then
+        t = t2
+    end
+    
+    if not t then return targetPos end
+    
+    -- Clamp prediction time to prevent wild over-aiming on jiggling targets
+    t = math.clamp(t, 0, 1.2)
+    
+    -- Calculate precise predicted position with gravity drop (-32 studs/s^2)
+    local predictedPos = targetPos + (targetVelocity * t)
+    local gravDrop = 0.5 * 32 * (t * t)
+    predictedPos = predictedPos + Vector3.new(0, gravDrop, 0)
     
     return predictedPos
 end
