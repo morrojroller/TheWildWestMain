@@ -1,3 +1,4 @@
+-- WWHE AimAssist Module (Optimized Cached Players, Instant Events, Frame-Locked Target Dot)
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -8,7 +9,7 @@ local LocalPlayer = Players.LocalPlayer
 local aimAssistActive = false
 local fovRadius = 150 -- Customizable FOV radius
 
--- Global or module-level tracking for cleanup integration
+-- Global tracking for cleanup integration
 _G.StealthAimAssistDrawings = _G.StealthAimAssistDrawings or {}
 
 -- Safely create Drawing objects with nil-protection
@@ -39,21 +40,35 @@ pcall(function()
     end
 end)
 
-local CONFIG = {
-    Players = true,
-    Animals = true,
-    NPCs = true
-}
+-- Cached Player Registry & Head Cache
+local cachedPlayers = {}
+local headKeyCache = {} -- Remembers whether it was "Head" or "head" per model
 
-local function clearAimAssistVisuals()
-    if fovCircle then fovCircle.Visible = false end
-    if targetDot then targetDot.Visible = false end
+local function getValidHeadPart(model)
+    if not model then return nil end
+    -- Check remembered case-insensitive cache first
+    local cachedKey = headKeyCache[model]
+    if cachedKey then
+        local found = model:FindFirstChild(cachedKey)
+        if found and found:IsA("BasePart") then return found end
+    end
+
+    -- Otherwise search standard casing variants
+    for _, child in ipairs(model:GetChildren()) do
+        if child:IsA("BasePart") then
+            local cName = child.Name:lower()
+            if cname == "head" then
+                headKeyCache[model] = child.Name
+                return child
+            end
+        end
+    end
+    return nil
 end
 
--- Priority target selection: Head -> Neck -> Torso (UpperTorso/Torso/HumanoidRootPart)
 local function getPriorityAimPosition(model)
     if not model then return nil end
-    local head = model:FindFirstChild("Head")
+    local head = getValidHeadPart(model)
     local neck = model:FindFirstChild("Neck")
     local torso = model:FindFirstChild("UpperTorso") or model:FindFirstChild("Torso") or model:FindFirstChild("HumanoidRootPart")
     
@@ -67,125 +82,114 @@ local function getPriorityAimPosition(model)
     return nil
 end
 
-local function getTargetPosition(origin)
+local function clearAimAssistVisuals()
+    if fovCircle then fovCircle.Visible = false end
+    if targetDot then targetDot.Visible = false end
+end
+
+-- Setup and populate players folder cache with instant connections
+local entitiesFolder = Workspace:WaitForChild("WORKSPACE_Entities", 5)
+local playersFolder = entitiesFolder and entitiesFolder:WaitForChild("Players", 5)
+
+if playersFolder then
+    local function registerPlayer(model)
+        if model:IsA("Model") and model.Name ~= LocalPlayer.Name then
+            cachedPlayers[model] = true
+        end
+    end
+
+    -- Initial load
+    for _, child in ipairs(playersFolder:GetChildren()) do
+        registerPlayer(child)
+    end
+
+    -- Instant ChildAdded / ChildRemoved tracking
+    table.insert(_G.StealthConnections, playersFolder.ChildAdded:Connect(function(child)
+        task.defer(function()
+            if child and child.Parent then
+                registerPlayer(child)
+            end
+        end)
+    end))
+
+    table.insert(_G.StealthConnections, playersFolder.ChildRemoved:Connect(function(child)
+        cachedPlayers[child] = nil
+        headKeyCache[child] = nil
+    end))
+end
+
+-- Frame-locked RenderStepped calculation loop for UI and target state updating
+local currentBestAimPos = nil
+
+RunService.RenderStepped:Connect(function()
     if not aimAssistActive or not _G.StealthWorkerRunning then
         clearAimAssistVisuals()
-        return nil
+        currentBestAimPos = nil
+        return
     end
 
     local camera = Workspace.CurrentCamera
     if not camera then 
-        warn("[AimAssist Debug]: Workspace.CurrentCamera is missing or nil!")
-        return nil 
+        clearAimAssistVisuals()
+        currentBestAimPos = nil
+        return 
     end
 
     local mousePos = UserInputService:GetMouseLocation()
-    fovCircle.Position = mousePos
-    fovCircle.Visible = aimAssistActive
+    if fovCircle then
+        fovCircle.Position = mousePos
+        fovCircle.Visible = true
+    end
 
     local character = LocalPlayer.Character
     local hrpChar = character and character:FindFirstChild("HumanoidRootPart")
-    local charPos = hrpChar and hrpChar.Position or origin
+    local charPos = hrpChar and hrpChar.Position or camera.CFrame.Position
     local charLook = hrpChar and hrpChar.CFrame.LookVector or camera.CFrame.LookVector
 
-    local Entities = Workspace:FindFirstChild("WORKSPACE_Entities")
-    if not Entities then
-        warn("[AimAssist Debug]: Workspace.WORKSPACE_Entities folder could not be found!")
-        targetDot.Visible = false
-        return nil
-    end
-
-    local PlayersFolder = Entities:FindFirstChild("Players")
-    local AnimalsFolder = Entities:FindFirstChild("Animals")
-    local NPCsFolder = Entities:FindFirstChild("NPCs")
-
     local bestScore = math.huge
-    local targetPos = nil
-    local bestScreenPos = nil
+    local bestTargetPos = nil
+    local bestScreenVec = nil
 
-    local function processTarget(part, aimPosition)
-        if not part or not aimPosition then 
-            warn("[AimAssist Debug]: processTarget received a nil part or aimPosition!")
-            return 
-        end
-        local toTarget = (aimPosition - charPos).Unit
-        if charLook:Dot(toTarget) > 0 then
-            local screenPos, onScreen = camera:WorldToScreenPoint(aimPosition)
-            if onScreen and screenPos.Z > 0 then
-                local screenVec = Vector2.new(screenPos.X, screenPos.Y)
-                local distToMouse = (screenVec - mousePos).Magnitude
-                
-                -- Must be inside the FOV circle radius
-                if distToMouse <= fovRadius then
-                    local distToPlayer = (aimPosition - charPos).Magnitude
-                    local score = distToMouse + (distToPlayer * 0.05)
-                    
-                    if score < bestScore then
-                        bestScore = score
-                        targetPos = aimPosition
-                        bestScreenPos = screenVec
+    for model, _ in pairs(cachedPlayers) do
+        if model and model.Parent then
+            local aimPos = getPriorityAimPosition(model)
+            if aimPos then
+                local toTarget = (aimPos - charPos).Unit
+                if charLook:Dot(toTarget) > 0 then
+                    local screenPos, onScreen = camera:WorldToScreenPoint(aimPos)
+                    if onScreen and screenPos.Z > 0 then
+                        local screenVec = Vector2.new(screenPos.X, screenPos.Y)
+                        local distToMouse = (screenVec - mousePos).Magnitude
+                        
+                        if distToMouse <= fovRadius then
+                            local distToPlayer = (aimPos - charPos).Magnitude
+                            local score = distToMouse + (distToPlayer * 0.05)
+                            
+                            if score < bestScore then
+                                bestScore = score
+                                bestTargetPos = aimPos
+                                bestScreenVec = screenVec
+                            end
+                        end
                     end
                 end
             end
+        else
+            -- Clean up dead references from cache
+            cachedPlayers[model] = nil
+            headKeyCache[model] = nil
         end
     end
 
-    if CONFIG.Players and PlayersFolder then
-        for _, model in ipairs(PlayersFolder:GetChildren()) do
-            if model ~= character and model:IsA("Model") then
-                local hrp = model:FindFirstChild("HumanoidRootPart")
-                if hrp then
-                    local aimPos = getPriorityAimPosition(model) or hrp.Position
-                    processTarget(hrp, aimPos)
-                end
-            end
-        end
-    end
+    currentBestAimPos = bestTargetPos
 
-    if CONFIG.Animals and AnimalsFolder then
-        for _, model in ipairs(AnimalsFolder:GetChildren()) do
-            if model:IsA("Model") then
-                local hrp = model:FindFirstChild("HumanoidRootPart")
-                if hrp then
-                    local aimPos = getPriorityAimPosition(model) or hrp.Position
-                    processTarget(hrp, aimPos)
-                end
-            end
-        end
-    end
-
-    if CONFIG.NPCs and NPCsFolder then
-        for _, descendant in ipairs(NPCsFolder:GetDescendants()) do
-            if descendant:IsA("Model") then
-                local hrp = descendant:FindFirstChild("HumanoidRootPart")
-                if hrp then
-                    local aimPos = getPriorityAimPosition(descendant) or hrp.Position
-                    processTarget(hrp, aimPos)
-                end
-            end
-        end
-    end
-
-    if targetPos and bestScreenPos then
-        targetDot.Position = bestScreenPos
+    if bestTargetPos and bestScreenVec and targetDot then
+        targetDot.Position = bestScreenVec
         targetDot.Visible = true
     else
-        targetDot.Visible = false
+        if targetDot then targetDot.Visible = false end
     end
-
-    return targetPos
-end
-
--- RenderStepped to update FOV circle position with mouse movement
-local renderConn = RunService.RenderStepped:Connect(function()
-    if not aimAssistActive or not _G.StealthWorkerRunning then
-        clearAimAssistVisuals()
-        return
-    end
-    fovCircle.Position = UserInputService:GetMouseLocation()
-    fovCircle.Visible = true
 end)
-table.insert(_G.StealthConnections, renderConn)
 
 -- Toggle Aim Assist via CapsLock
 local keyConn = UserInputService.InputBegan:Connect(function(input, gameProcessed)
@@ -201,32 +205,30 @@ local keyConn = UserInputService.InputBegan:Connect(function(input, gameProcesse
 end)
 table.insert(_G.StealthConnections, keyConn)
 
--- Hook ProjectileHandler (Silent Aim Spread Only)
+-- Hook ProjectileHandler (Silent Aim Spread redirection)
 local success, ProjectileHandler = pcall(function()
     return require(ReplicatedStorage:WaitForChild("SharedModules", 5):WaitForChild("World", 5):WaitForChild("ProjectileHandler", 5))
 end)
-
-if not success or not ProjectileHandler then
-    warn("[AimAssist Debug]: Failed to require ProjectileHandler module! Path may have changed.")
-end
 
 if success and ProjectileHandler then
     if not ProjectileHandler._OriginalGetSpread then
         ProjectileHandler._OriginalGetSpread = ProjectileHandler.GetProjectileSpread
     end
+    if not ProjectileHandler._OriginalInitProjectiles then
+        ProjectileHandler._OriginalInitProjectiles = ProjectileHandler.InitProjectiles
+    end
 
     ProjectileHandler.GetProjectileSpread = function(self, projectileType, projectileParams, info, numProjectiles)
-        if aimAssistActive and info and info.origin then
-            local targetPos = getTargetPosition(info.origin)
-            if targetPos then
-                local newDir = (targetPos - info.origin).Unit
-                info.direction = newDir
-            end
+        if aimAssistActive and info and info.origin and currentBestAimPos then
+            info.direction = (currentBestAimPos - info.origin).Unit
         end
-        if ProjectileHandler._OriginalGetSpread then
-            return ProjectileHandler._OriginalGetSpread(self, projectileType, projectileParams, info, numProjectiles)
-        else
-        	warn("[AimAssist Debug]: _OriginalGetSpread is missing!")
+        return ProjectileHandler._OriginalGetSpread(self, projectileType, projectileParams, info, numProjectiles)
+    end
+
+    ProjectileHandler.InitProjectiles = function(self, projectileType, projectileParams, info, callback)
+        if aimAssistActive and info and info.origin and currentBestAimPos then
+            info.direction = (currentBestAimPos - info.origin).Unit
         end
+        return ProjectileHandler._OriginalInitProjectiles(self, projectileType, projectileParams, info, callback)
     end
 end
