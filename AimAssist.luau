@@ -6,12 +6,13 @@ local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 
 local aimAssistActive = false
-local fovRadius = 150
+local fovRadius = 150 -- Customizable FOV radius
 
+-- Global or module-level tracking for cleanup integration
 _G.StealthAimAssistDrawings = _G.StealthAimAssistDrawings or {}
 
-local fovCircle, targetDot
-
+-- Safely create FOV Circle
+local fovCircle
 pcall(function()
     fovCircle = Drawing.new("Circle")
     fovCircle.Visible = false
@@ -23,6 +24,8 @@ pcall(function()
     table.insert(_G.StealthAimAssistDrawings, fovCircle)
 end)
 
+-- Safely create Target Dot
+local targetDot
 pcall(function()
     targetDot = Drawing.new("Circle")
     targetDot.Visible = false
