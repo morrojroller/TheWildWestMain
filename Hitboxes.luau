@@ -1,4 +1,3 @@
--- WWHE Hitboxes Module (NPC Hitbox Expander & ESP)
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local Players = game:GetService("Players")
@@ -107,7 +106,7 @@ local function updateVisualsAndHitbox(model, targetPart, isAnimal)
     end
 
     local mNameLower = model.Name:lower()
-    if string.find(mNameLower, "horse") or string.find(mNameLower, "thigh") or string.find(mNameLower, "antlers") then
+    if string.find(mNameLower, "horse") or string.find(mNameLower, "thigh") or string.find(mNameLower, "antlers") or string.find(mNameLower, "musketspringfield") then
         cleanupEntity(model, targetPart)
         removeVisuals(model)
         return
