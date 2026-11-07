@@ -1,4 +1,3 @@
--- WWHE AimAssist Module (FOV Circle, Target Dot, Priority Targeting, CapsLock Toggle with Debugging)
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -7,27 +6,32 @@ local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 
 local aimAssistActive = false
-local fovRadius = 150 -- Customizable FOV circle radius
+local fovRadius = 150
 
--- Global tracking for cleanup integration
 _G.StealthAimAssistDrawings = _G.StealthAimAssistDrawings or {}
-_G.StealthConnections = _G.StealthConnections or {}
 
--- Create Drawing objects for FOV Circle and Target Dot
-local fovCircle = Drawing.new("Circle")
-fovCircle.Visible = false
-fovCircle.Radius = fovRadius
-fovCircle.Filled = false
-fovCircle.Thickness = 1.5
-fovCircle.Color = Color3.fromRGB(255, 255, 255)
-fovCircle.Transparency = 0.7
+local fovCircle, targetDot
 
-local targetDot = Drawing.new("Circle")
-targetDot.Visible = false
-targetDot.Radius = 4
-targetDot.Filled = true
-targetDot.Color = Color3.fromRGB(255, 0, 0)
-targetDot.Transparency = 1
+pcall(function()
+    fovCircle = Drawing.new("Circle")
+    fovCircle.Visible = false
+    fovCircle.Radius = fovRadius
+    fovCircle.Filled = false
+    fovCircle.Thickness = 1.5
+    fovCircle.Color = Color3.fromRGB(255, 255, 255)
+    fovCircle.Transparency = 0.7
+    table.insert(_G.StealthAimAssistDrawings, fovCircle)
+end)
+
+pcall(function()
+    targetDot = Drawing.new("Circle")
+    targetDot.Visible = false
+    targetDot.Radius = 4
+    targetDot.Filled = true
+    targetDot.Color = Color3.fromRGB(255, 0, 0)
+    targetDot.Transparency = 1
+    table.insert(_G.StealthAimAssistDrawings, targetDot)
+end)
 
 table.insert(_G.StealthAimAssistDrawings, fovCircle)
 table.insert(_G.StealthAimAssistDrawings, targetDot)
