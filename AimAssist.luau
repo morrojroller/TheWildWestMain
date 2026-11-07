@@ -7,6 +7,7 @@ local LocalPlayer = Players.LocalPlayer
 
 local aimAssistActive = false
 local fovRadius = 350 -- Customizable FOV radius
+local aliveCheck = true -- Added alive check, defaulted to true
 
 -- Global tracking for cleanup integration
 _G.StealthAimAssistDrawings = _G.StealthAimAssistDrawings or {}
@@ -48,9 +49,10 @@ pcall(function()
     end
 end)
 
--- Cached Entity Registries & Head Caches
+-- Cached Entity Registries, Head Caches, & Original Folder Tracking
 local cachedEntities = {}
 local headKeyCache = {}
+local entityOriginalFolders = {}
 
 local CONFIG = {
     Players = true,
@@ -107,15 +109,17 @@ if entitiesFolder then
     local animalsFolder = entitiesFolder:FindFirstChild("Animals")
     local npcsFolder = entitiesFolder:FindFirstChild("NPCs")
 
-    local function registerEntity(model)
+    local function registerEntity(model, parentFolder)
         if model:IsA("Model") and model.Name ~= LocalPlayer.Name then
             cachedEntities[model] = true
+            entityOriginalFolders[model] = parentFolder
         end
     end
 
     local function unregisterEntity(model)
         cachedEntities[model] = nil
         headKeyCache[model] = nil
+        entityOriginalFolders[model] = nil
         Prediction.CleanupTarget(model)
     end
 
@@ -127,7 +131,7 @@ if entitiesFolder then
         for _, child in ipairs(container:GetChildren()) do
             if child:IsA("Folder") or child:IsA("Model") then
                 if child:IsA("Model") then
-                    registerEntity(child)
+                    registerEntity(child, container)
                 end
                 monitorContainer(child)
             end
@@ -137,7 +141,7 @@ if entitiesFolder then
             task.defer(function()
                 if child and child.Parent then
                     if child:IsA("Model") then
-                        registerEntity(child)
+                        registerEntity(child, container)
                     end
                     if child:IsA("Folder") or child:IsA("Model") then
                         monitorContainer(child)
@@ -201,6 +205,15 @@ RunService.RenderStepped:Connect(function()
 
     for model, _ in pairs(cachedEntities) do
         if model and model.Parent then
+            -- Alive Check: if enabled, check if they are "dead" (moved out of their original folder)
+            if aliveCheck then
+                local originalFolder = entityOriginalFolders[model]
+                if not originalFolder or model.Parent ~= originalFolder then
+                    unregisterEntity(model)
+                    continue
+                end
+            end
+
             if string.find(model.Name:lower(), "musketspringfield") then
                 continue
             end
@@ -238,9 +251,7 @@ RunService.RenderStepped:Connect(function()
                 end
             end
         else
-            cachedEntities[model] = nil
-            headKeyCache[model] = nil
-            Prediction.CleanupTarget(model)
+            unregisterEntity(model)
         end
     end
 
