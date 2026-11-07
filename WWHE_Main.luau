@@ -51,6 +51,14 @@ if _G.StealthHitmanDrawingCache then
     _G.StealthHitmanDrawingCache = nil
 end
 
+-- Cleanup Aim Assist drawings on global reset
+if _G.StealthAimAssistDrawings then
+    for _, drawObj in pairs(_G.StealthAimAssistDrawings) do
+        if drawObj then pcall(function() drawObj:Destroy() end) end
+    end
+    _G.StealthAimAssistDrawings = nil
+end
+
 if _G.StealthConnections then
     for _, conn in pairs(_G.StealthConnections) do
         if conn then pcall(function() conn:Disconnect() end) end
@@ -73,6 +81,7 @@ _G.StealthDrawingCache = {}
 _G.StealthHighlightCache = {}
 _G.StealthHitmanHighlightCache = {}
 _G.StealthHitmanDrawingCache = {}
+_G.StealthAimAssistDrawings = {}
 _G.StealthConnections = {}
 _G.StealthWorkerRunning = true
 
@@ -91,5 +100,6 @@ loadModule("Visuals.luau")
 loadModule("Hitboxes.luau")
 loadModule("GunMod.luau")
 loadModule("HitmanStuff.luau")
+loadModule("AimAssist.luau")
 
 print("[WWHE]: All modules loaded successfully!")
