@@ -1,4 +1,4 @@
--- WWHE AimAssist Module (Optimized Cached Players, NPCs, Animals, Instant Events, Frame-Locked Target Dot)
+-- WWHE AimAssist Module (Optimized Caching, Instant Events, Distance Scaling & Screen Clamping)
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -77,13 +77,14 @@ local function getPriorityAimPosition(model)
     local torso = model:FindFirstChild("UpperTorso") or model:FindFirstChild("Torso") or model:FindFirstChild("HumanoidRootPart")
     
     if head then
-        return head.Position - Vector3.new(0, 0.5, 0)
+        -- Return head position (we apply distance-based vertical offset scaling later)
+        return head.Position, head
     elseif neck then
-        return neck.Position
+        return neck.Position, nil
     elseif torso then
-        return torso.Position
+        return torso.Position, nil
     end
-    return nil
+    return nil, nil
 end
 
 local function clearAimAssistVisuals()
@@ -160,7 +161,7 @@ if entitiesFolder then
     end
 end
 
--- Frame-locked RenderStepped calculation loop for UI and target state updating
+-- Frame-locked RenderStepped calculation loop with distance & screen scaling
 local currentBestAimPos = nil
 
 RunService.RenderStepped:Connect(function()
@@ -191,26 +192,37 @@ RunService.RenderStepped:Connect(function()
     local bestScore = math.huge
     local bestTargetPos = nil
     local bestScreenVec = nil
+    local bestDistance = 0
 
     for model, _ in pairs(cachedEntities) do
         if model and model.Parent then
-            local aimPos = getPriorityAimPosition(model)
-            if aimPos then
-                local toTarget = (aimPos - charPos).Unit
+            local basePos, headPart = getPriorityAimPosition(model)
+            if basePos then
+                local distToPlayer = (basePos - charPos).Magnitude
+                
+                -- Distance scaling factor to prevent floating offsets at range
+                local scaleFactor = math.clamp(1 - (distToPlayer / 500), 0.2, 1.0)
+                local adjustedAimPos = basePos
+                if headPart then
+                    -- Scale down the downward offset calculation based on distance
+                    adjustedAimPos = basePos - Vector3.new(0, 0.25 * scaleFactor, 0)
+                end
+
+                local toTarget = (adjustedAimPos - charPos).Unit
                 if charLook:Dot(toTarget) > 0 then
-                    local screenPos, onScreen = camera:WorldToScreenPoint(aimPos)
+                    local screenPos, onScreen = camera:WorldToScreenPoint(adjustedAimPos)
                     if onScreen and screenPos.Z > 0 then
                         local screenVec = Vector2.new(screenPos.X, screenPos.Y)
                         local distToMouse = (screenVec - mousePos).Magnitude
                         
                         if distToMouse <= fovRadius then
-                            local distToPlayer = (aimPos - charPos).Magnitude
                             local score = distToMouse + (distToPlayer * 0.05)
                             
                             if score < bestScore then
                                 bestScore = score
-                                bestTargetPos = aimPos
+                                bestTargetPos = adjustedAimPos
                                 bestScreenVec = screenVec
+                                bestDistance = distToPlayer
                             end
                         end
                     end
@@ -227,6 +239,9 @@ RunService.RenderStepped:Connect(function()
 
     if bestTargetPos and bestScreenVec and targetDot then
         targetDot.Position = bestScreenVec
+        -- Scale target dot radius dynamically based on distance so it doesn't look giant or tiny
+        local dotScale = math.clamp(1 - (bestDistance / 400), 0.4, 1.0)
+        targetDot.Radius = math.clamp(math.floor(4 * dotScale), 2, 4)
         targetDot.Visible = true
     else
         if targetDot then targetDot.Visible = false end
