@@ -7,7 +7,7 @@ local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 
 local aimAssistActive = false
-local fovRadius = 150 -- Customizable FOV radius
+local fovRadius = 220 -- Customizable FOV radius
 
 -- Global tracking for cleanup integration
 _G.StealthAimAssistDrawings = _G.StealthAimAssistDrawings or {}
