@@ -8,6 +8,10 @@ local hitmanActive = false
 local trackedTargetName = nil
 local currentHitmanModel = nil
 
+-- Ensure global safety flags exist
+_G.StealthWorkerRunning = true
+_G.StealthConnections = _G.StealthConnections or {}
+
 -- Cleanup helpers for Hitman visuals
 local function clearHitmanVisuals()
     if _G.StealthHitmanHighlightCache then
@@ -48,8 +52,18 @@ local function getModelName(model)
     return model.Name
 end
 
+-- Clean strings to prevent whitespace/formatting mismatch
+local function cleanString(str)
+    if not str then return "" end
+    -- Remove non-alphanumeric/spaces or trim trailing spaces
+    return string.match(str, "^%s*(.-)%s*$"):lower()
+end
+
 local function findNPCByName(targetName)
-	if not targetName or string.lower(targetName):find("musketspringfield") then return nil end
+    if not targetName or string.lower(targetName):find("musketspringfield") then return nil end
+    local cleanTarget = cleanString(targetName)
+    if cleanTarget == "" then return nil end
+
     local entitiesFolder = Workspace:FindFirstChild("WORKSPACE_Entities")
     if not entitiesFolder then return nil end
     local npcsFolder = entitiesFolder:FindFirstChild("NPCs")
@@ -57,32 +71,26 @@ local function findNPCByName(targetName)
 
     local function searchContainer(parentObj)
         for _, child in ipairs(parentObj:GetChildren()) do
-            if child:IsA("Folder") then
+            if child:IsA("Folder") or child:IsA("Model") then
+                -- Check if this child itself is the target model
+                if child:IsA("Model") then
+                    local mName = cleanString(getModelName(child))
+                    if mName == cleanTarget or mName:find(cleanTarget) then
+                        return child
+                    end
+                end
+                -- Recurse deeper
                 local found = searchContainer(child)
                 if found then return found end
-            elseif child:IsA("Model") then
-                if getModelName(child):lower() == targetName:lower() then
-                    return child
-                end
             end
         end
         return nil
     end
 
-    for _, child in ipairs(npcsFolder:GetChildren()) do
-        if child:IsA("Folder") then
-            local found = searchContainer(child)
-            if found then return found end
-        elseif child:IsA("Model") then
-            if getModelName(child):lower() == targetName:lower() then
-                return child
-            end
-        end
-    end
-    return nil
+    return searchContainer(npcsFolder)
 end
 
--- Render loop for Hitman target (Zero Distance Limit)
+-- Render loop for Hitman target
 local hitmanRenderConn = RunService.RenderStepped:Connect(function()
     if not hitmanActive or not _G.StealthWorkerRunning then
         clearHitmanVisuals()
@@ -125,7 +133,7 @@ local hitmanRenderConn = RunService.RenderStepped:Connect(function()
         _G.StealthHitmanHighlightCache[currentHitmanModel] = highlight
     end
 
-    -- Update or create drawing for name overhead (NO distance limit)
+    -- Update or create drawing for name overhead
     _G.StealthHitmanDrawingCache = _G.StealthHitmanDrawingCache or {}
     local drawings = _G.StealthHitmanDrawingCache[currentHitmanModel]
     if not drawings then
@@ -191,7 +199,7 @@ local function setupHitmanTracker()
     end
 end
 
--- Listen for dynamic spawning/despawning of NPCs to automatically pick up the target when it loads
+-- Listen for dynamic spawning/despawning of NPCs
 local entitiesFolder = Workspace:WaitForChild("WORKSPACE_Entities", 5)
 if entitiesFolder then
     local npcsFolder = entitiesFolder:WaitForChild("NPCs", 5)
@@ -200,12 +208,12 @@ if entitiesFolder then
             table.insert(_G.StealthConnections, folder.ChildAdded:Connect(function(child)
                 if hitmanActive and trackedTargetName and not currentHitmanModel then
                     task.defer(function()
-                        if child:IsA("Model") and getModelName(child):lower() == trackedTargetName:lower() then
+                        if child:IsA("Model") and (cleanString(getModelName(child)) == cleanString(trackedTargetName)) then
                             currentHitmanModel = child
                         end
                     end)
                 end
-                if child:IsA("Folder") then
+                if child:IsA("Folder") or child:IsA("Model") then
                     monitorFolder(child)
                 end
             end))
