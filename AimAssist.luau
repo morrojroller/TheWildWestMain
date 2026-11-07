@@ -13,22 +13,6 @@ local fovRadius = 150 -- Customizable FOV circle radius
 _G.StealthAimAssistDrawings = _G.StealthAimAssistDrawings or {}
 _G.StealthConnections = _G.StealthConnections or {}
 
--- Cleanup previous drawings if reloading script
-for _, drawing in ipairs(_G.StealthAimAssistDrawings) do
-    if drawing and typeof(drawing.Remove) == "function" then
-        pcall(function() drawing:Remove() end)
-    end
-end
-table.clear(_G.StealthAimAssistDrawings)
-
--- Disconnect previous connections if reloading script
-for _, conn in ipairs(_G.StealthConnections) do
-    if conn and typeof(conn.Disconnect) == "function" then
-        pcall(function() conn:Disconnect() end)
-    end
-end
-table.clear(_G.StealthConnections)
-
 -- Create Drawing objects for FOV Circle and Target Dot
 local fovCircle = Drawing.new("Circle")
 fovCircle.Visible = false
@@ -225,4 +209,4 @@ if success and ProjectileHandler then
         return ProjectileHandler._OriginalGetSpread(self, projectileType, projectileParams, info, numProjectiles)
     end
 end
-```[cite: 1]
+```[cite: 1, 7]
