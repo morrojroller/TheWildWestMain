@@ -1,4 +1,3 @@
--- WWHE Visuals Module (Damage Indicators & Crosshairs)
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
