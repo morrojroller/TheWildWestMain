@@ -1,4 +1,4 @@
--- WWHE AimAssist Module (Optimized Cached Players, Instant Events, Frame-Locked Target Dot)
+-- WWHE AimAssist Module (Optimized Cached Players, NPCs, Animals, Instant Events, Frame-Locked Target Dot)
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -40,24 +40,28 @@ pcall(function()
     end
 end)
 
--- Cached Player Registry & Head Cache
-local cachedPlayers = {}
+-- Cached Entity Registries & Head Caches
+local cachedEntities = {}
 local headKeyCache = {} -- Remembers whether it was "Head" or "head" per model
+
+local CONFIG = {
+    Players = true,
+    Animals = true,
+    NPCs = true
+}
 
 local function getValidHeadPart(model)
     if not model then return nil end
-    -- Check remembered case-insensitive cache first
     local cachedKey = headKeyCache[model]
     if cachedKey then
         local found = model:FindFirstChild(cachedKey)
         if found and found:IsA("BasePart") then return found end
     end
 
-    -- Otherwise search standard casing variants
     for _, child in ipairs(model:GetChildren()) do
         if child:IsA("BasePart") then
             local cName = child.Name:lower()
-            if cname == "head" then
+            if cName == "head" then
                 headKeyCache[model] = child.Name
                 return child
             end
@@ -87,35 +91,73 @@ local function clearAimAssistVisuals()
     if targetDot then targetDot.Visible = false end
 end
 
--- Setup and populate players folder cache with instant connections
+-- Setup and populate complete folder hierarchies with instant connections
 local entitiesFolder = Workspace:WaitForChild("WORKSPACE_Entities", 5)
-local playersFolder = entitiesFolder and entitiesFolder:WaitForChild("Players", 5)
 
-if playersFolder then
-    local function registerPlayer(model)
+if entitiesFolder then
+    local playersFolder = entitiesFolder:FindFirstChild("Players")
+    local animalsFolder = entitiesFolder:FindFirstChild("Animals")
+    local npcsFolder = entitiesFolder:FindFirstChild("NPCs")
+
+    local function registerEntity(model)
         if model:IsA("Model") and model.Name ~= LocalPlayer.Name then
-            cachedPlayers[model] = true
+            cachedEntities[model] = true
         end
     end
 
-    -- Initial load
-    for _, child in ipairs(playersFolder:GetChildren()) do
-        registerPlayer(child)
+    local function unregisterEntity(model)
+        cachedEntities[model] = nil
+        headKeyCache[model] = nil
     end
 
-    -- Instant ChildAdded / ChildRemoved tracking
-    table.insert(_G.StealthConnections, playersFolder.ChildAdded:Connect(function(child)
-        task.defer(function()
-            if child and child.Parent then
-                registerPlayer(child)
+    local function recursiveScan(parentObj)
+        for _, child in ipairs(parentObj:GetChildren()) do
+            if child:IsA("Folder") then
+                recursiveScan(child)
+            elseif child:IsA("Model") then
+                registerEntity(child)
             end
-        end)
-    end))
+        end
+    end
 
-    table.insert(_G.StealthConnections, playersFolder.ChildRemoved:Connect(function(child)
-        cachedPlayers[child] = nil
-        headKeyCache[child] = nil
-    end))
+    -- Setup Folders & Listeners
+    if CONFIG.Players and playersFolder then
+        for _, child in ipairs(playersFolder:GetChildren()) do registerEntity(child) end
+        table.insert(_G.StealthConnections, playersFolder.ChildAdded:Connect(function(child)
+            task.defer(function() if child and child.Parent then registerEntity(child) end end)
+        end))
+        table.insert(_G.StealthConnections, playersFolder.ChildRemoved:Connect(unregisterEntity))
+    end
+
+    if CONFIG.Animals and animalsFolder then
+        recursiveScan(animalsFolder)
+        table.insert(_G.StealthConnections, animalsFolder.ChildAdded:Connect(function(child)
+            task.defer(function()
+                if child and child.Parent then
+                    if child:IsA("Folder") then recursiveScan(child)
+                    elseif child:IsA("Model") then registerEntity(child) end
+                end
+            end)
+        end))
+        table.insert(_G.StealthConnections, animalsFolder.ChildRemoved:Connect(function(child)
+            if child:IsA("Model") then unregisterEntity(child) end
+        end))
+    end
+
+    if CONFIG.NPCs and npcsFolder then
+        recursiveScan(npcsFolder)
+        table.insert(_G.StealthConnections, npcsFolder.ChildAdded:Connect(function(child)
+            task.defer(function()
+                if child and child.Parent then
+                    if child:IsA("Folder") then recursiveScan(child)
+                    elseif child:IsA("Model") then registerEntity(child) end
+                end
+            end)
+        end))
+        table.insert(_G.StealthConnections, npcsFolder.ChildRemoved:Connect(function(child)
+            if child:IsA("Model") then unregisterEntity(child) end
+        end))
+    end
 end
 
 -- Frame-locked RenderStepped calculation loop for UI and target state updating
@@ -150,7 +192,7 @@ RunService.RenderStepped:Connect(function()
     local bestTargetPos = nil
     local bestScreenVec = nil
 
-    for model, _ in pairs(cachedPlayers) do
+    for model, _ in pairs(cachedEntities) do
         if model and model.Parent then
             local aimPos = getPriorityAimPosition(model)
             if aimPos then
@@ -176,7 +218,7 @@ RunService.RenderStepped:Connect(function()
             end
         else
             -- Clean up dead references from cache
-            cachedPlayers[model] = nil
+            cachedEntities[model] = nil
             headKeyCache[model] = nil
         end
     end
