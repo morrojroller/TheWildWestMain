@@ -1,4 +1,4 @@
--- WWHE AimAssist Module (Optimized Caching, Instant Events, Distance Scaling & Screen Clamping)
+-- WWHE AimAssist Module (Fully Updated, 100% Recursive Event-Driven Caching & Instant Cleanup)
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -11,6 +11,7 @@ local fovRadius = 350 -- Customizable FOV radius
 
 -- Global tracking for cleanup integration
 _G.StealthAimAssistDrawings = _G.StealthAimAssistDrawings or {}
+_G.StealthConnections = _G.StealthConnections or {}
 
 -- Safely create Drawing objects with nil-protection
 local fovCircle
@@ -92,7 +93,7 @@ local function clearAimAssistVisuals()
     if targetDot then targetDot.Visible = false end
 end
 
--- Setup and populate complete folder hierarchies with instant connections
+-- Setup and populate complete folder hierarchies with 100% robust recursive listeners
 local entitiesFolder = Workspace:WaitForChild("WORKSPACE_Entities", 5)
 
 if entitiesFolder then
@@ -111,53 +112,55 @@ if entitiesFolder then
         headKeyCache[model] = nil
     end
 
-    local function recursiveScan(parentObj)
-        for _, child in ipairs(parentObj:GetChildren()) do
-            if child:IsA("Folder") then
-                recursiveScan(child)
-            elseif child:IsA("Model") then
-                registerEntity(child)
+    -- Forward declaration for recursive container monitoring
+    local monitorContainer
+
+    monitorContainer = function(container)
+        if not container then return end
+
+        -- Initial scan of current contents
+        for _, child in ipairs(container:GetChildren()) do
+            if child:IsA("Folder") or child:IsA("Model") then
+                if child:IsA("Model") then
+                    registerEntity(child)
+                end
+                monitorContainer(child)
             end
         end
+
+        -- Listen for future additions inside this container (Folders or Models that can contain models)
+        table.insert(_G.StealthConnections, container.ChildAdded:Connect(function(child)
+            task.defer(function()
+                if child and child.Parent then
+                    if child:IsA("Model") then
+                        registerEntity(child)
+                    end
+                    if child:IsA("Folder") or child:IsA("Model") then
+                        monitorContainer(child)
+                    end
+                end
+            end)
+        end))
+
+        -- Listen for removals inside this container to instantly unregister/clean up
+        table.insert(_G.StealthConnections, container.ChildRemoved:Connect(function(child)
+            if child:IsA("Model") then
+                unregisterEntity(child)
+            end
+        end))
     end
 
-    -- Setup Folders & Listeners
+    -- Setup Folders & 100% Deep Recursive Listeners
     if CONFIG.Players and playersFolder then
-        for _, child in ipairs(playersFolder:GetChildren()) do registerEntity(child) end
-        table.insert(_G.StealthConnections, playersFolder.ChildAdded:Connect(function(child)
-            task.defer(function() if child and child.Parent then registerEntity(child) end end)
-        end))
-        table.insert(_G.StealthConnections, playersFolder.ChildRemoved:Connect(unregisterEntity))
+        monitorContainer(playersFolder)
     end
 
     if CONFIG.Animals and animalsFolder then
-        recursiveScan(animalsFolder)
-        table.insert(_G.StealthConnections, animalsFolder.ChildAdded:Connect(function(child)
-            task.defer(function()
-                if child and child.Parent then
-                    if child:IsA("Folder") then recursiveScan(child)
-                    elseif child:IsA("Model") then registerEntity(child) end
-                end
-            end)
-        end))
-        table.insert(_G.StealthConnections, animalsFolder.ChildRemoved:Connect(function(child)
-            if child:IsA("Model") then unregisterEntity(child) end
-        end))
+        monitorContainer(animalsFolder)
     end
 
     if CONFIG.NPCs and npcsFolder then
-        recursiveScan(npcsFolder)
-        table.insert(_G.StealthConnections, npcsFolder.ChildAdded:Connect(function(child)
-            task.defer(function()
-                if child and child.Parent then
-                    if child:IsA("Folder") then recursiveScan(child)
-                    elseif child:IsA("Model") then registerEntity(child) end
-                end
-            end)
-        end))
-        table.insert(_G.StealthConnections, npcsFolder.ChildRemoved:Connect(function(child)
-            if child:IsA("Model") then unregisterEntity(child) end
-        end))
+        monitorContainer(npcsFolder)
     end
 end
 
