@@ -89,18 +89,38 @@ function Prediction.StartWeaponMonitor()
     end
 end
 
+-- Helper to safely convert position arguments (Vector3, CFrame, or BasePart/Model) into Vector3
+local function toVector3(pos)
+    local t = typeof(pos)
+    if t == "Vector3" then
+        return pos
+    elseif t == "CFrame" then
+        return pos.Position
+    elseif t == "Instance" then
+        if pos:IsA("Model") then
+            return pos:GetPivot().Position
+        elseif pos:IsA("BasePart") then
+            return pos.Position
+        end
+    end
+    return nil
+end
+
 -- Enhanced velocity tracking with anti-jiggle damping
-local VELOCITY_SMOOTH_FACTOR = 0.2 -- Lowered for smoother response against jerky strafes
+local VELOCITY_SMOOTH_FACTOR = 0.2 
 local MIN_VELOCITY_THRESHOLD = 0.8
-local MAX_VELOCITY_CAP = 45 -- Capped lower to prevent over-aiming when players jiggle fast
+local MAX_VELOCITY_CAP = 45 
 
 function Prediction.UpdateTargetVelocity(model, currentPos)
+    local posVec = toVector3(currentPos)
+    if not posVec then return Vector3.zero end
+
     local now = tick()
     local data = targetVelocities[model]
     
     if not data then
         targetVelocities[model] = {
-            lastPos = currentPos,
+            lastPos = posVec,
             lastTime = now,
             velocity = Vector3.zero,
             smoothVelocity = Vector3.zero,
@@ -111,7 +131,7 @@ function Prediction.UpdateTargetVelocity(model, currentPos)
     local dt = now - data.lastTime
     if dt < 0.001 then return data.smoothVelocity end
     
-    local rawVelocity = (currentPos - data.lastPos) / dt
+    local rawVelocity = (posVec - data.lastPos) / dt
     if rawVelocity.Magnitude > MAX_VELOCITY_CAP then
         rawVelocity = rawVelocity.Unit * MAX_VELOCITY_CAP
     end
@@ -121,7 +141,7 @@ function Prediction.UpdateTargetVelocity(model, currentPos)
         smoothed = Vector3.zero
     end
     
-    data.lastPos = currentPos
+    data.lastPos = posVec
     data.lastTime = now
     data.velocity = rawVelocity
     data.smoothVelocity = smoothed
@@ -133,72 +153,18 @@ function Prediction.CleanupTarget(model)
     targetVelocities[model] = nil
 end
 
-local function solveInterceptTime(origin, targetPos, targetVel, projectileSpeed, gravity)
-    local relPos = targetPos - origin
-    local relVel = targetVel
-    local gravY = gravity.Y
+function Prediction.GetPredictedPosition(origin, targetModel, targetPos)
+    local originVec = toVector3(origin)
+    local targetVec = toVector3(targetPos)
     
-    local a = relVel:Dot(relVel) - projectileSpeed * projectileSpeed
-    local b = 2 * relPos:Dot(relVel)
-    local c = relPos:Dot(relPos)
+    if not originVec or not targetVec then return targetPos end
+    if not currentWeaponData then return targetVec end
     
-    local discriminant = b * b - 4 * a * c
-    if math.abs(a) < 0.0001 then
-        if math.abs(b) < 0.0001 then return nil end
-        local t = -c / b
-        return t > 0 and t or nil
-    end
-    
-    if discriminant < 0 then return nil end
-    
-    local sqrtDisc = math.sqrt(discriminant)
-    local t1 = (-b - sqrtDisc) / (2 * a)
-    local t2 = (-b + sqrtDisc) / (2 * a)
-    
-    local t = nil
-    if t1 > 0.001 and t2 > 0.001 then
-        t = math.min(t1, t2)
-    elseif t1 > 0.001 then
-        t = t1
-    elseif t2 > 0.001 then
-        t = t2
-    end
-    
-    if not t then return nil end
-    
-    -- Cap prediction time at long range to prevent wild misses on jiggling targets
-    t = math.clamp(t, 0, 1.0)
-    
-    local gravDrop = 0.5 * math.abs(gravY) * t * t
-    local adjustedTargetPos = targetPos + Vector3.new(0, gravDrop, 0)
-    local relPos2 = adjustedTargetPos - origin
-    
-    local c2 = relPos2:Dot(relPos2)
-    local b2 = 2 * relPos2:Dot(relVel)
-    
-    local disc2 = b2 * b2 - 4 * a * c2
-    if disc2 >= 0 then
-        local sqrtDisc2 = math.sqrt(disc2)
-        local t1_2 = (-b2 - sqrtDisc2) / (2 * a)
-        local t2_2 = (-b2 + sqrtDisc2) / (2 * a)
-        if t1_2 > 0.001 and t2_2 > 0.001 then
-            t = math.min(t1_2, t2_2)
-        elseif t1_2 > 0.001 then
-            t = t1_2
-        elseif t2_2 > 0.001 then
-            t = t2_2
-        end
-    end
-    
-    return math.clamp(t, 0, 1.2) -- Strict clamp to avoid long-range prediction over-extension
-end
-
-function Prediction.GetPredictedPosition(origin, targetModel, targetPos, targetVelocity)
-    if not currentWeaponData then return targetPos end
-    
-    -- Retrieve actual projectile power/speed from shared weapon data
     local projectileSpeed = currentWeaponData.ProjectilePower or 1000
-    local relPos = targetPos - origin
+    if projectileSpeed <= 0 then return targetVec end
+    
+    local targetVelocity = Prediction.UpdateTargetVelocity(targetModel, targetVec)
+    local relPos = targetVec - originVec
     
     -- Quadratic coefficients for intercept time (t)
     local a = targetVelocity:Dot(targetVelocity) - (projectileSpeed * projectileSpeed)
@@ -209,8 +175,8 @@ function Prediction.GetPredictedPosition(origin, targetModel, targetPos, targetV
     if discriminant < 0 or math.abs(a) < 0.0001 then
         -- Fallback to linear travel time if discriminant fails
         local flightTime = relPos.Magnitude / projectileSpeed
-        local gravDrop = 0.5 * 32 * (flightTime * flightTime)
-        return targetPos + (targetVelocity * flightTime) + Vector3.new(0, gravDrop, 0)
+        local gravDrop = 0.5 * math.abs(GRAVITY.Y) * (flightTime * flightTime)
+        return targetVec + (targetVelocity * flightTime) + Vector3.new(0, gravDrop, 0)
     end
     
     local sqrtDisc = math.sqrt(discriminant)
@@ -226,14 +192,14 @@ function Prediction.GetPredictedPosition(origin, targetModel, targetPos, targetV
         t = t2
     end
     
-    if not t then return targetPos end
+    if not t then return targetVec end
     
     -- Clamp prediction time to prevent wild over-aiming on jiggling targets
     t = math.clamp(t, 0, 1.2)
     
-    -- Calculate precise predicted position with gravity drop (-32 studs/s^2)
-    local predictedPos = targetPos + (targetVelocity * t)
-    local gravDrop = 0.5 * 32 * (t * t)
+    -- Calculate precise predicted position with gravity drop
+    local predictedPos = targetVec + (targetVelocity * t)
+    local gravDrop = 0.5 * math.abs(GRAVITY.Y) * (t * t)
     predictedPos = predictedPos + Vector3.new(0, gravDrop, 0)
     
     return predictedPos
