@@ -1,4 +1,3 @@
--- WWHE HitmanStuff Module (Hitman Gamepass Target Tracker & Highlight)
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
@@ -50,6 +49,7 @@ local function getModelName(model)
 end
 
 local function findNPCByName(targetName)
+	if not targetName or string.lower(targetName):find("musketspringfield") then return nil end
     local entitiesFolder = Workspace:FindFirstChild("WORKSPACE_Entities")
     if not entitiesFolder then return nil end
     local npcsFolder = entitiesFolder:FindFirstChild("NPCs")
