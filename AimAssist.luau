@@ -223,4 +223,3 @@ if success and ProjectileHandler then
         end
     end
 end
-[cite: 1, 7]```
